@@ -79,6 +79,7 @@ class Kindle:
         self.books_info_dict = {}
         self.file_type_list = ["EBOOK", "PDOC"]
         self.device_sn = kwargs["device_sn"] if "device_sn" in kwargs else ""
+        self.query_tokens_dict = {}
         atexit.register(self.dump_session)
 
     def set_cookie(self, cookiejar):
@@ -236,7 +237,7 @@ class Kindle:
             raise Exception("No devices are bound to this account")
         return [device for device in devices if "deviceSerialNumber" in device]
 
-    def get_all_books(self, start_index=0, filetype="EBOK"):
+    def get_all_books(self, start_index=0, filetype="EBOK", query_token=-1):
         """
         TODO: refactor this function
         """
@@ -274,6 +275,10 @@ class Kindle:
                     "isExtendedMYK": False,
                 }
             )
+
+            if startIndex > 10000:
+                payload["param"]["OwnershipData"]["queryToken"] = str(query_token)
+                payload["param"]["OwnershipData"]["queryOffset"] = 1
 
         books = []
         ### added by yihong0618 2022.06.27
@@ -337,7 +342,7 @@ class Kindle:
             try:
                 items = result["OwnershipData"]["items"]
             except KeyError:
-                logger.error("get all books error: %s", result.get("error"))
+                logger.error("get all books error: %s", result)
                 break
             for item in items:
                 if filetype == "PDOC":
@@ -350,8 +355,16 @@ class Kindle:
             self.total_to_download = result["OwnershipData"]["numberOfItems"]
 
             if result["OwnershipData"]["hasMoreItems"]:
-                startIndex += batchSize
+                startIndex += len(items)
                 payload["param"]["OwnershipData"]["startIndex"] = startIndex
+            elif startIndex >= 10000 and startIndex <= 15336:
+                startIndex += len(items)
+                payload["param"]["OwnershipData"]["startIndex"] = startIndex
+                payload["param"]["OwnershipData"]["queryToken"] = str(items[-1]["acquiredTime"])
+                payload["param"]["OwnershipData"]["queryOffset"] = 1
+                print(payload)
+            elif startIndex >= 200:
+                break
             else:
                 break
         return books
@@ -530,11 +543,16 @@ class Kindle:
                 f"Index: {index + 1}, Title: {title}, Asin: {asin} download failed"
             )
 
-    def download_books(self, start_index=0, filetype="EBOK"):
+    def download_books(self, start_index=0, filetype="EBOK", query_token=1):
         # use default device
         device = self.find_device()
 
-        books = self.get_all_books(filetype=filetype, start_index=start_index)
+        query_tokens_file = os.path.join(self.out_dir, "query_tokens_dict.dat")
+        if os.path.isfile(query_tokens_file):
+            with open(query_tokens_file, "rb") as f:
+                self.query_tokens_dict = pickle.load(f)
+
+        books = self.get_all_books(filetype=filetype, start_index=start_index, query_token=query_token)
         if start_index > 0:
             print(f"resuming the download {start_index + 1}/{self.total_to_download}")
         index = start_index
@@ -557,6 +575,10 @@ class Kindle:
                 logger.info(
                     "All done books saved in `DOWNLOAD`, dedrm files saved in `DEDRMS`"
                 )
+
+        if self.query_tokens_dict:
+            with open(query_tokens_file, "wb") as f:
+                pickle.dump(self.query_tokens_dict, f)
 
         with open(os.path.join(self.out_dir, "key.txt"), "w") as f:
             f.write(f"Key is: {device['deviceSerialNumber']}")

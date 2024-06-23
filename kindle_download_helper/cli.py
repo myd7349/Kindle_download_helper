@@ -189,6 +189,10 @@ def main():
         help="resume from the index if download failed",
     )
     parser.add_argument(
+        "--query-token",
+        type=int,
+    )
+    parser.add_argument(
         "--cut-length",
         dest="cut_length",
         type=int,
@@ -316,7 +320,8 @@ def main():
         if options.mode == "all":
             # download all books
             kindle.download_books(
-                start_index=options.index - 1, filetype=options.filetype
+                start_index=options.index - 1, filetype=options.filetype,
+                query_token=options.query_token
             )
         elif options.mode == "sel":
             # download selected books
